@@ -10,8 +10,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <title>Hora do remédio</title>
 <style>
-:root{--bg:#eef6f5;--card:#fff;--ink:#0f2a33;--mute:#5f7882;--line:#dbe8e7;--brand:#0e8a86;--brand-d:#0a6b68;--on-brand:#fff;--soft:#d9f2f0;--warm:#fff1e6;--warm-line:#ff9a62;--warm-ink:#8a3b0c;--ok:#1c8a55;--ok-soft:#dff5e8;--sh:0 8px 24px rgba(15,70,80,.08);--s:70%;--lb:92%;--lf:34%}
-@media(prefers-color-scheme:dark){:root{--bg:#0b1a1f;--card:#12262d;--ink:#e6f3f2;--mute:#8fb0b4;--line:#21404a;--brand:#4fd1c5;--brand-d:#7fe3da;--on-brand:#06201f;--soft:#12393a;--warm:#3a2616;--warm-ink:#ffc9a3;--ok:#5fd194;--ok-soft:#133726;--sh:0 8px 24px rgba(0,0,0,.35);--s:45%;--lb:22%;--lf:72%}}
+:root{--bg:#eef6f5;--card:#fff;--ink:#0f2a33;--mute:#5f7882;--line:#dbe8e7;--brand:#0e8a86;--brand-d:#0a6b68;--on-brand:#fff;--soft:#d9f2f0;--warm:#fff1e6;--warm-line:#ff9a62;--warm-ink:#8a3b0c;--ok:#1c8a55;--ok-soft:#dff5e8;--sh:0 8px 24px rgba(15,70,80,.08);--s:70%;--lb:92%;--lf:34%;--late:#c0392b}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1a1f;--card:#12262d;--ink:#e6f3f2;--mute:#8fb0b4;--line:#21404a;--brand:#4fd1c5;--brand-d:#7fe3da;--on-brand:#06201f;--soft:#12393a;--warm:#3a2616;--warm-ink:#ffc9a3;--ok:#5fd194;--ok-soft:#133726;--sh:0 8px 24px rgba(0,0,0,.35);--s:45%;--lb:22%;--lf:72%;--late:#ff8f7a}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;min-height:100vh;background:linear-gradient(180deg,var(--soft) 0,var(--bg) 280px) var(--bg);color:var(--ink);font:16px/1.45 Figtree,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 main{max-width:560px;margin:0 auto;padding:18px 16px 120px}
@@ -37,6 +37,7 @@ header .grow{flex:1}
 .meta{font-size:.9rem;color:var(--mute)}
 [hidden],.chips:empty{display:none!important}
 .filter{margin-bottom:12px}
+.cd.late{color:var(--late);font-weight:800}
 .who{display:inline-block;font-size:.78rem;font-weight:700;color:hsl(var(--h) 55% var(--lf));background:hsl(var(--h) var(--s) var(--lb));border-radius:99px;padding:2px 10px;margin-bottom:3px}
 .ring{position:relative;width:84px;height:84px;flex:none;display:grid;place-items:center}
 .ring svg{position:absolute;inset:0;transform:rotate(-90deg);fill:none;stroke-width:7}
@@ -225,6 +226,7 @@ function when(t) {
 }
 function rel(ms) {
   const m = Math.max(0, Math.round(ms / 60000));
+  if (m < 1) return 'menos de 1 min';
   if (m < 60) return m + ' min';
   const h = Math.floor(m / 60), r = m % 60;
   if (h < 24) return h + ' h' + (r ? ' ' + r + ' min' : '');
@@ -237,15 +239,15 @@ let first = true, filter = '';
 function heroHTML(S, now) {
   const d = S.find(x => x.s.due);
   if (d) { const {m, s} = d;
-    return `<section class="hero due"><span class="ic big pulse" style="--h:${hue(m)}">${I('pill')}</span><div class="hb"><div class="k">Hora de tomar${m.patient ? ' · ' + esc(m.patient) : ''}</div><div class="t">${esc(m.name)}</div><div class="meta">${esc(m.dose)} · dose das ${hm(s.due)}</div></div><button class="btn" data-a="ack" data-id="${m.id}">${I('check')}Já tomei</button></section>`; }
+    return `<section class="hero due"><span class="ic big pulse" style="--h:${hue(m)}">${I('pill')}</span><div class="hb"><div class="k">Hora de tomar${m.patient ? ' · ' + esc(m.patient) : ''}</div><div class="t">${esc(m.name)}</div><div class="meta">${esc(m.dose)} · dose das ${hm(s.due)} (<span class="cd" data-ts="${s.due}" data-m="since"></span>)</div></div><button class="btn" data-a="ack" data-id="${m.id}">${I('check')}Já tomei</button></section>`; }
   const n = S.filter(x => x.s.next).sort((a, b) => a.s.next - b.s.next)[0];
   if (n) { const {m, s} = n, st = step(m), f = Math.min(1, Math.max(0, (now - (s.next - st)) / st)), C = 2 * Math.PI * 34;
-    return `<section class="hero"><div class="ring"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="34"/><circle class="pg" cx="40" cy="40" r="34" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - f)}"/></svg><span class="ic" style="--h:${hue(m)}">${I('pill')}</span></div><div class="hb"><div class="k">Próxima dose em ${rel(s.next - now)}</div><div class="t">${esc(m.name)}</div><div class="meta">${m.patient ? esc(m.patient) + ' · ' : ''}${esc(m.dose)} · ${when(s.next)}</div></div></section>`; }
+    return `<section class="hero"><div class="ring"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="34"/><circle class="pg" cx="40" cy="40" r="34" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - f)}"/></svg><span class="ic" style="--h:${hue(m)}">${I('pill')}</span></div><div class="hb"><div class="k">Próxima dose em <span class="cd" data-ts="${s.next}" data-m="until"></span></div><div class="t">${esc(m.name)}</div><div class="meta">${m.patient ? esc(m.patient) + ' · ' : ''}${esc(m.dose)} · ${when(s.next)}</div></div></section>`; }
   return `<section class="hero"><div class="hb"><div class="t">${meds.length ? 'Tudo em dia' : 'Vamos começar?'}</div><div class="meta">${meds.length ? 'Nenhuma dose pendente no momento.' : 'Toque em “Novo remédio” para criar seu primeiro lembrete.'}</div></div></section>`;
 }
 function cardHTML({m, s}, i, now) {
   const dayN = Math.min(m.days, Math.max(1, Math.floor((now - m.start) / D) + 1)), pct = Math.min(100, Math.max(0, (now - m.start) / (m.days * D) * 100));
-  const tag = s.due ? '<span class="tag warm">Hora de tomar</span>' : s.next ? `<span class="tag">Próxima: ${when(s.next)}</span>` : '<span class="tag okk">Concluído</span>';
+  const tag = s.due ? `<span class="tag warm">Hora de tomar · <span class="cd" data-ts="${s.due}" data-m="since"></span></span>` : s.next ? `<span class="tag">Em <span class="cd" data-ts="${s.next}" data-m="until"></span> · ${when(s.next)}</span>` : '<span class="tag okk">Concluído</span>';
   return `<article class="card${s.due ? ' due' : ''}" style="--h:${hue(m)};--i:${i}" data-id="${m.id}">
     <div class="top"><span class="ic">${I('pill')}</span><div>${m.patient ? `<span class="who">${esc(m.patient)}</span>` : ''}<div class="t">${esc(m.name)}</div><div class="meta">${esc(m.dose)} · a cada ${m.hours} h</div></div></div>
     <div class="bar"><i style="width:${pct}%"></i></div>
@@ -264,9 +266,23 @@ function render() {
   $('hero').innerHTML = heroHTML(S, now);
   const L = filter ? S.filter(x => x.m.patient === filter) : S;
   $('list').innerHTML = L.length ? L.map((x, i) => cardHTML(x, i, now)).join('') : '';
-  first = false;
+  first = false; lastSig = sig(); tick();
 }
-let tt;
+let tt, lastSig = '', beat = 0;
+const sig = () => meds.map(m => m.id + ':' + (status(m, Date.now()).due || 0)).join();
+function tick() {
+  const now = Date.now();
+  document.querySelectorAll('.cd').forEach(e => {
+    const d = now - e.dataset.ts, since = e.dataset.m === 'since', late = since && d >= 1800000;
+    e.textContent = since ? (late ? 'atrasado há ' : 'há ') + rel(d) : rel(-d);
+    e.classList.toggle('late', late);
+  });
+}
+function heartbeat() {
+  if (sig() !== lastSig) return check();          // uma dose venceu ou foi marcada: redesenha e avisa
+  tick();
+  if (++beat % 6 === 0 && !document.querySelector('button:active')) render();   // ~1x por minuto: atualiza anel e barras
+}
 function toast(t) { const e = $('toast'); e.textContent = t; e.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => e.classList.remove('on'), 2400); }
 
 /* ---------- Eventos ---------- */
@@ -354,7 +370,7 @@ function check() {
 window.addEventListener('offline', () => setSync('off'));
 window.addEventListener('online', () => setSync(db ? 'ok' : 'local'));
 document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
-setInterval(check, 30000);
+setInterval(heartbeat, 10000);
 updatePerm(); render(); check(); initFirebase();
 </script>
 </body>
