@@ -1,0 +1,8 @@
+{
+  "appId": "app.horadoremedio",
+  "appName": "Hora do remédio",
+  "webDir": "www",
+  "plugins": {
+    "LocalNotifications": { "iconColor": "#0e8a86" }
+  }
+}

@@ -36,6 +36,7 @@ header .grow{flex:1}
 .t{font-size:1.25rem;font-weight:800;letter-spacing:-.01em;overflow-wrap:anywhere}
 .meta{font-size:.9rem;color:var(--mute)}
 [hidden],.chips:empty{display:none!important}
+.native [data-a=ics],.native .web-only{display:none!important}
 .filter{margin-bottom:12px}
 .cd.late{color:var(--late);font-weight:800}
 .who{display:inline-block;font-size:.78rem;font-weight:700;color:hsl(var(--h) 55% var(--lf));background:hsl(var(--h) var(--s) var(--lb));border-radius:99px;padding:2px 10px;margin-bottom:3px}
@@ -112,7 +113,7 @@ input:focus{outline:0;border-color:var(--brand);box-shadow:0 0 0 4px var(--soft)
   <div class="chips filter" id="flt" hidden></div>
   <h2>Meus remédios</h2>
   <div id="list"></div>
-  <p class="note">Para o celular avisar com o app fechado, use “Calendário” em cada remédio.</p>
+  <p class="note web-only">Para o celular avisar com o app fechado, use “Calendário” em cada remédio.</p>
 </main>
 
 <button class="fab" id="bAdd"><svg class="i"><use href="#i-plus"/></svg>Novo remédio</button>
@@ -167,6 +168,9 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>'
 const LS = (k, v) => { try { if (v === undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } };
 const I = n => `<svg class="i"><use href="#i-${n}"/></svg>`;
 
+const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const LN = NATIVE ? window.Capacitor.Plugins.LocalNotifications : null;
+if (NATIVE) document.documentElement.classList.add('native');
 let meds = LS('rem-cache') || [];
 let notified = LS('rem-notified') || {};
 let space = LS('rem-space');
@@ -199,7 +203,10 @@ function subscribe() {
       LS('rem-mig-' + space, 1);
       if (!Object.keys(v).length && meds.length) { meds.forEach(push); setSync('ok'); return; }
     }
-    meds = Object.values(v); LS('rem-cache', meds);
+    meds = Object.values(v);
+    const q = LS('rem-pending-ack') || {};          // "Já tomei" tocado na notificação antes de conectar
+    meds.forEach(m => { if (q[m.id] > (m.ack || 0)) { m.ack = q[m.id]; push(m); } });
+    LS('rem-pending-ack', {}); LS('rem-cache', meds);
     setSync(navigator.onLine ? 'ok' : 'off'); render(); check();
   }, () => setSync('err'));
 }
@@ -266,7 +273,7 @@ function render() {
   $('hero').innerHTML = heroHTML(S, now);
   const L = filter ? S.filter(x => x.m.patient === filter) : S;
   $('list').innerHTML = L.length ? L.map((x, i) => cardHTML(x, i, now)).join('') : '';
-  first = false; lastSig = sig(); tick();
+  first = false; lastSig = sig(); tick(); scheduleNative();
 }
 let tt, lastSig = '', beat = 0;
 const sig = () => meds.map(m => m.id + ':' + (status(m, Date.now()).due || 0)).join();
@@ -346,9 +353,13 @@ function downloadIcs(m) {
 
 /* ---------- Notificações ---------- */
 let swReg = null;
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(r => swReg = r).catch(() => {});
-function updatePerm() { $('bBell').classList.toggle('dot', !('Notification' in window) || Notification.permission !== 'granted'); }
+if (!NATIVE && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(r => swReg = r).catch(() => {});
+async function updatePerm() {
+  if (LN) { try { const p = await LN.checkPermissions(); $('bBell').classList.toggle('dot', p.display !== 'granted'); } catch (e) {} return; }
+  $('bBell').classList.toggle('dot', !('Notification' in window) || Notification.permission !== 'granted');
+}
 $('bBell').onclick = async () => {
+  if (LN) return enableNative(false);
   if (!('Notification' in window)) return toast('Este navegador não suporta notificações');
   if (Notification.permission === 'granted') return toast('Notificações já estão ativas');
   await Notification.requestPermission(); updatePerm();
@@ -362,16 +373,67 @@ function notify(m) {
 }
 function check() {
   const now = Date.now();
-  meds.forEach(m => { const s = status(m, now); if (s.due && s.due > (notified[m.id] || 0)) { notified[m.id] = s.due; LS('rem-notified', notified); notify(m); } });
+  meds.forEach(m => { const s = status(m, now); if (s.due && s.due > (notified[m.id] || 0)) { notified[m.id] = s.due; LS('rem-notified', notified); if (!LN) notify(m); } });
   render();
+}
+
+/* ---------- App nativo (Capacitor): alarmes agendados no próprio celular ---------- */
+// Cada aparelho agenda as próprias notificações a partir da lista de remédios.
+// Elas disparam com o app fechado e sem internet. Até 3 avisos por dose: na hora, +10 min e +20 min.
+const hash = str => { let h = 5381; for (const c of str) h = ((h << 5) + h + c.charCodeAt(0)) | 0; return (h & 0x7fffffff) || 1; };
+let schedKey = '', schedBusy = false;
+async function scheduleNative(force) {
+  if (!LN || schedBusy) return;
+  const key = JSON.stringify(meds.map(m => [m.id, m.start, m.hours, m.days, m.ack, m.name, m.dose, m.patient]));
+  if (!force && key === schedKey) return;
+  schedBusy = true; schedKey = key;
+  try {
+    if ((await LN.checkPermissions()).display !== 'granted') return;
+    const pend = await LN.getPending();
+    if (pend.notifications.length) await LN.cancel({notifications: pend.notifications.map(n => ({id: n.id}))});
+    const now = Date.now(), items = [];
+    meds.forEach(m => doseTimes(m).forEach((t, k) => {
+      if (t <= (m.ack || 0)) return;
+      [0, 10, 20].forEach(r => { const at = t + r * 60000; if (at > now) items.push({m, t, r, at, k}); });
+    }));
+    items.sort((a, b) => a.at - b.at);
+    const list = items.slice(0, 120).map(({m, t, r, at, k}) => ({
+      id: hash(`${m.id}:${k}:${r}`),
+      title: r ? 'Lembrete: já tomou o remédio?' : 'Hora do remédio',
+      body: `${m.patient ? m.patient + ': ' : ''}${m.name} — ${m.dose}`,
+      schedule: {at: new Date(at), allowWhileIdle: true},
+      channelId: 'doses', actionTypeId: 'DOSE', extra: {medId: m.id, t}
+    }));
+    if (list.length) await LN.schedule({notifications: list});
+  } catch (e) { console.error(e); schedKey = ''; } finally { schedBusy = false; }
+}
+async function enableNative(silent) {
+  const r = await LN.requestPermissions();
+  if (r.display !== 'granted') { if (!silent) toast('Permita as notificações nas configurações do app'); return updatePerm(); }
+  try { const x = await LN.checkExactNotificationSetting(); if (x.exact_alarm !== 'granted') await LN.changeExactNotificationSetting(); } catch (e) {}
+  await scheduleNative(true); updatePerm(); if (!silent) toast('Alarmes ativados');
+}
+function applyAck(id, t) {
+  const q = LS('rem-pending-ack') || {}; q[id] = Math.max(q[id] || 0, t); LS('rem-pending-ack', q);
+  const m = meds.find(x => x.id === id);
+  if (m) { m.ack = Math.max(m.ack || 0, t); push(m); render(); toast('Dose registrada'); }
+}
+async function initNative() {
+  if (!LN) return;
+  try {
+    await LN.createChannel({id: 'doses', name: 'Doses de remédio', description: 'Avisos na hora de tomar', importance: 5, visibility: 1, vibration: true, lights: true});
+    await LN.registerActionTypes({types: [{id: 'DOSE', actions: [{id: 'tomei', title: 'Já tomei'}]}]});
+    LN.addListener('localNotificationActionPerformed', ev => { if (ev.actionId === 'tomei' && ev.notification.extra) applyAck(ev.notification.extra.medId, ev.notification.extra.t); });
+    await enableNative(true);
+  } catch (e) { console.error(e); }
 }
 
 /* ---------- Início ---------- */
 window.addEventListener('offline', () => setSync('off'));
 window.addEventListener('online', () => setSync(db ? 'ok' : 'local'));
-document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { check(); scheduleNative(true); } });
 setInterval(heartbeat, 10000);
-updatePerm(); render(); check(); initFirebase();
+updatePerm(); render(); check(); initFirebase(); initNative();
 </script>
 </body>
 </html>
