@@ -1,7 +1,7 @@
 // Service worker: guarda o app para abrir offline e exibe notificações.
-const C = 'hora-remedio-v2';
+const C = 'hora-remedio-v3';
 self.addEventListener('install', e => e.waitUntil(
-  caches.open(C).then(c => c.addAll(['./', 'index.html', 'manifest.json', 'icon.svg'])).then(() => self.skipWaiting())
+  caches.open(C).then(c => c.addAll(['./', 'index.html', 'styles.css', 'app.js', 'schedule.js', 'manifest.json', 'icon.svg'])).then(() => self.skipWaiting())
 ));
 self.addEventListener('activate', e => e.waitUntil(
   caches.keys().then(k => Promise.all(k.filter(x => x !== C).map(x => caches.delete(x)))).then(() => self.clients.claim())
